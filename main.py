@@ -24,13 +24,11 @@ def calculate_metrics(income, balance, cashflow, info):
         capex = abs(cashflow.get('Capital Expenditure', 0))
         fcf = op_cash - capex
 
-        # الحسابات المالية الأساسية
         roic = (ebit / (equity + total_debt)) * 100 if (equity + total_debt) > 0 else 0
         roe = (ni / equity) * 100 if equity > 0 else 0
         fcf_yield = (fcf / info.get('marketCap', 1)) * 100 if info.get('marketCap') else 0
         d_e = total_debt / equity if equity > 0 else 0
         
-        # نسبة ROE إلى ROIC (توضح أثر الرافعة المالية)
         roe_roic_ratio = roe / roic if roic > 0 else 0
 
         return {
@@ -57,7 +55,6 @@ def get_stock_analysis(ticker: str = Query(..., description="رمز الشركة
         cagr_rev = 0
 
         if not a_inc.empty:
-            # تجهيز بيانات الرسم البياني لآخر 4 سنوات
             for col in a_inc.columns[:4]:
                 year_label = col.year
                 chart_data.append({
@@ -66,14 +63,13 @@ def get_stock_analysis(ticker: str = Query(..., description="رمز الشركة
                     "net_income": float(a_inc.loc['Net Income', col]) if 'Net Income' in a_inc.index else 0
                 })
             
-            # حساب CAGR الإيرادات لثلاث سنوات
             if len(a_inc.columns) >= 4:
                 rev_now = a_inc.iloc[:, 0].get('Total Revenue', 0)
                 rev_past = a_inc.iloc[:, 3].get('Total Revenue', 0)
                 if rev_past > 0 and rev_now > 0:
                     cagr_rev = ((rev_now / rev_past) ** (1/3) - 1) * 100
 
-        # 2. البيانات الربعية للـ TTM (الأداء الحالي)
+        # 2. البيانات الربعية للـ TTM
         q_inc = stock.quarterly_financials
         q_bal = stock.quarterly_balance_sheet
         q_cf = stock.quarterly_cashflow
@@ -87,6 +83,7 @@ def get_stock_analysis(ticker: str = Query(..., description="رمز الشركة
         
         metrics = calculate_metrics(ttm_inc, q_bal.iloc[:, 0], ttm_cf, info)
         
+        # إضافة الحقول الجديدة (EV/EBITDA و Beta) في المخرجات
         return {
             "ticker": ticker,
             "name": info.get('longName'),
@@ -94,9 +91,11 @@ def get_stock_analysis(ticker: str = Query(..., description="رمز الشركة
             "currentPrice": info.get('currentPrice'),
             "pe_ratio": info.get('trailingPE'),
             "peg_ratio": info.get('pegRatio'),
+            "ev_ebitda": info.get('enterpriseToEbitda'), # حقل جديد
+            "beta": info.get('beta'),                    # حقل جديد
             "cagr_revenue_3y": round(float(cagr_rev), 2),
             "analysis": metrics,
-            "history_charts": chart_data[::-1] # ترتيب تصاعدي للسنين
+            "history_charts": chart_data[::-1]
         }
     except Exception as e:
         return {"error": str(e)}
