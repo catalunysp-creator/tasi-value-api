@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import yfinance as yf
 import pandas as pd
 import numpy as np
+from datetime import datetime
 
 app = FastAPI()
 
@@ -13,116 +14,119 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def calculate_metrics(income, balance, cashflow, info):
+def safe_float(value, default=0.0):
     try:
-        # البيانات الأساسية
-        rev = income.get('Total Revenue', 0)
-        ni = income.get('Net Income', 0)
-        ebit = income.get('Operating Income', income.get('EBIT', 0))
-        ebitda = income.get('EBITDA', info.get('ebitda', ebit))
+        if value is None or (isinstance(value, float) and np.isnan(value)):
+            return default
+        return float(value)
+    except:
+        return default
+
+def calculate_metrics(income, balance, cashflow, info):
+    res = {}
+    try:
+        # جلب البيانات الأساسية بأمان
+        rev = safe_float(income.get('Total Revenue', 0))
+        ni = safe_float(income.get('Net Income', 0))
+        ebit = safe_float(income.get('Operating Income', income.get('EBIT', 0)))
+        ebitda = safe_float(income.get('EBITDA', info.get('ebitda', ebit)))
         
-        equity = balance.get('Stockholders Equity', balance.get('Total Equity Gross Minority Interest', 0))
-        total_debt = balance.get('Total Debt', 0)
-        net_debt = info.get('netDebt', total_debt - balance.get('Cash And Cash Equivalents', 0))
+        equity = safe_float(balance.get('Stockholders Equity', balance.get('Total Equity Gross Minority Interest', 0)))
+        total_debt = safe_float(balance.get('Total Debt', 0))
+        net_debt = safe_float(info.get('netDebt', total_debt - safe_float(balance.get('Cash And Cash Equivalents', 0))))
         
-        op_cash = cashflow.get('Operating Cash Flow', 0)
-        capex = abs(cashflow.get('Capital Expenditure', 0))
+        op_cash = safe_float(cashflow.get('Operating Cash Flow', 0))
+        capex = abs(safe_float(cashflow.get('Capital Expenditure', 0)))
         fcf = op_cash - capex
 
-        # مؤشرات جديدة: تغطية الفوائد ورأس المال العامل
-        interest_expense = abs(income.get('Interest Expense', 0))
-        working_capital = balance.get('Current Assets', 0) - balance.get('Current Liabilities', 0)
+        interest_expense = abs(safe_float(income.get('Interest Expense', 0)))
+        working_cap = safe_float(balance.get('Current Assets', 0)) - safe_float(balance.get('Current Liabilities', 0))
 
-        # 1. مؤشرات الجودة والكفاءة
-        roic = (ebit / (equity + total_debt)) * 100 if (equity + total_debt) > 0 else 0
-        roe = (ni / equity) * 100 if equity > 0 else 0
-        roe_roic_ratio = roe / roic if roic > 0 else 0
-        ebit_margin = (ebit / rev) * 100 if rev > 0 else 0
+        # 1. مؤشرات الجودة
+        res["roic"] = round((ebit / (equity + total_debt)) * 100, 2) if (equity + total_debt) > 0 else 0
+        res["roe"] = round((ni / equity) * 100, 2) if equity > 0 else 0
+        res["roe_roic_ratio"] = round(res["roe"] / res["roic"], 2) if res.get("roic", 0) > 0 else 0
+        res["ebit_margin"] = round((ebit / rev) * 100, 2) if rev > 0 else 0
 
-        # 2. مؤشرات الملاءة والمخاطر
-        net_debt_ebitda = net_debt / ebitda if ebitda > 0 else 0
-        interest_coverage = ebit / interest_expense if interest_expense > 0 else 0
+        # 2. الملاءة والمخاطر
+        res["net_debt_ebitda"] = round(net_debt / ebitda, 2) if ebitda > 0 else 0
+        res["interest_coverage"] = round(ebit / interest_expense, 2) if interest_expense > 0 else 0
+        res["d_e"] = round(total_debt / equity, 2) if equity > 0 else 0
+        res["fcf_yield"] = round((fcf / safe_float(info.get('marketCap', 1))) * 100, 2) if info.get('marketCap') else 0
 
-        # 3. تقدير WACC (بناءً على معايير السوق السعودي التقريبية)
-        rf = 0.045  # معدل خالي من المخاطر 4.5%
-        erp = 0.055 # علاوة مخاطر السوق 5.5%
-        beta = info.get('beta', 1.0) or 1.0
-        tax = 0.20  # نسبة الزكاة/الضريبة التقديرية
-        
-        cost_of_equity = rf + (beta * erp)
-        cost_of_debt = (interest_expense / total_debt) if total_debt > 0 else rf
-        
-        m_cap = info.get('marketCap', 0)
-        total_cap = m_cap + total_debt
-        wacc = 0
+        # 3. تكلفة رأس المال (WACC) تقديرية
+        beta = safe_float(info.get('beta', 1.0), 1.0)
+        cost_eq = 0.045 + (beta * 0.055)
+        cost_d = (interest_expense / total_debt) if total_debt > 0 else 0.045
+        mcap = safe_float(info.get('marketCap', 0))
+        total_cap = mcap + total_debt
+        wacc_val = 0
         if total_cap > 0:
-            w_eq = m_cap / total_cap
-            w_d = total_debt / total_cap
-            wacc = (w_eq * cost_of_equity) + (w_d * cost_of_debt * (1 - tax))
-
-        return {
-            "ROIC": round(float(roic), 2),
-            "ROE": round(float(roe), 2),
-            "ROE_ROIC_Ratio": round(float(roe_roic_ratio), 2),
-            "FCF_Yield": round(float(fcf_yield_calc(fcf, info)), 2),
-            "D_E": round(float(total_debt / equity), 2) if equity > 0 else 0,
-            "EBIT_Margin": round(float(ebit_margin), 2),
-            "Net_Debt_EBITDA": round(float(net_debt_ebitda), 2),
-            "Interest_Coverage": round(float(interest_coverage), 2),
-            "CapEx": float(capex),
-            "Working_Capital": float(working_capital),
-            "WACC": round(float(wacc * 100), 2)
-        }
-    except: return {}
-
-def fcf_yield_calc(fcf, info):
-    mcap = info.get('marketCap')
-    return (fcf / mcap) * 100 if mcap else 0
+            wacc_val = ((mcap/total_cap)*cost_eq) + ((total_debt/total_cap)*cost_d*0.8)
+        res["wacc"] = round(wacc_val * 100, 2)
+        
+        res["capex"] = capex
+        res["working_capital"] = working_cap
+        
+        return res
+    except:
+        return {k: 0 for k in ["roic", "roe", "roe_roic_ratio", "ebit_margin", "net_debt_ebitda", "interest_coverage", "d_e", "fcf_yield", "wacc", "capex", "working_capital"]}
 
 @app.get("/analyze")
 def get_stock_analysis(ticker: str = Query(..., description="رمز الشركة")):
     try:
         stock = yf.Ticker(ticker)
         info = stock.info
-        calendar = stock.calendar
-        
-        # التقويم المالي
-        next_earn = "N/A"
-        ex_div = "N/A"
-        if isinstance(calendar, dict):
-            earn = calendar.get('Earnings Date')
-            if earn: next_earn = earn[0].strftime('%Y-%m-%d')
-            div = calendar.get('Ex-Dividend Date')
-            if div: ex_div = div.strftime('%Y-%m-%d')
+        if not info or 'longName' not in info:
+            return {"error": "Ticker not found"}
 
-        # البيانات المالية والنمو
+        # معالجة التقويم المالي
+        cal = stock.calendar
+        next_earn, ex_div = "N/A", "N/A"
+        if isinstance(cal, dict):
+            if cal.get('Earnings Date'): next_earn = cal['Earnings Date'][0].strftime('%Y-%m-%d')
+            if cal.get('Ex-Dividend Date'): ex_div = cal['Ex-Dividend Date'].strftime('%Y-%m-%d')
+
+        # معالجة البيانات السنوية والنمو
         a_inc = stock.financials
-        cagr_rev = 0
-        chart_data = []
-        if not a_inc.empty:
-            for col in a_inc.columns[:4]:
-                chart_data.append({"year": col.year, "revenue": float(a_inc.loc['Total Revenue', col]), "net_income": float(a_inc.loc['Net Income', col])})
+        cagr_rev, chart_data = 0, []
+        if not a_inc.empty and len(a_inc.columns) >= 1:
+            for col in a_inc.columns[:min(4, len(a_inc.columns))]:
+                chart_data.append({
+                    "year": col.year, 
+                    "revenue": safe_float(a_inc.loc['Total Revenue', col]) if 'Total Revenue' in a_inc.index else 0,
+                    "net_income": safe_float(a_inc.loc['Net Income', col]) if 'Net Income' in a_inc.index else 0
+                })
             if len(a_inc.columns) >= 4:
-                cagr_rev = ((a_inc.iloc[0,0] / a_inc.iloc[0,3])**(1/3)-1)*100
+                r_now = safe_float(a_inc.iloc[0, 0])
+                r_past = safe_float(a_inc.iloc[0, 3])
+                if r_past > 0: cagr_rev = round(((r_now / r_past)**(1/3)-1)*100, 2)
 
-        q_inc, q_bal, q_cf = stock.quarterly_financials, stock.quarterly_balance_sheet, stock.quarterly_cashflow
-        ttm_inc = q_inc.iloc[:, :min(4, len(q_inc.columns))].sum(axis=1)
-        metrics = calculate_metrics(ttm_inc, q_bal.iloc[:, 0], q_cf.iloc[:, :min(4, len(q_cf.columns))].sum(axis=1), info)
+        # معالجة البيانات الربعية للـ TTM
+        q_inc = stock.quarterly_financials
+        q_bal = stock.quarterly_balance_sheet
+        q_cf = stock.quarterly_cashflow
+        
+        metrics = {}
+        if not q_inc.empty:
+            ttm_inc = q_inc.iloc[:, :min(4, len(q_inc.columns))].sum(axis=1)
+            metrics = calculate_metrics(ttm_inc, q_bal.iloc[:, 0] if not q_bal.empty else {}, q_cf.iloc[:, 0] if not q_cf.empty else {}, info)
 
         return {
             "ticker": ticker,
             "name": info.get('longName'),
             "sector": info.get('sector'),
-            "currentPrice": info.get('currentPrice'),
-            "pe_ratio": info.get('trailingPE'),
-            "peg_ratio": info.get('pegRatio'),
-            "ev_ebitda": info.get('enterpriseToEbitda'),
-            "beta": info.get('beta'),
-            "insider_percentage": info.get('insidersPercentHeld'),
+            "currentPrice": safe_float(info.get('currentPrice')),
+            "pe_ratio": safe_float(info.get('trailingPE')),
+            "peg_ratio": safe_float(info.get('pegRatio')),
+            "ev_ebitda": safe_float(info.get('enterpriseToEbitda')),
+            "beta": safe_float(info.get('beta')),
+            "insider_percentage": safe_float(info.get('insidersPercentHeld')),
             "next_earnings_date": next_earn,
             "ex_dividend_date": ex_div,
-            "cagr_revenue_3y": round(float(cagr_rev), 2),
-            "analysis": metrics,
+            "cagr_revenue_3y": cagr_rev,
+            **metrics, # دمج المؤشرات في المستوى الأول مباشرة
             "history_charts": chart_data[::-1]
         }
-    except Exception as e: return {"error": str(e)}
+    except Exception as e:
+        return {"error": str(e)}
