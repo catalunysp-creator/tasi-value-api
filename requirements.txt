@@ -5,3 +5,8 @@ pandas
 numpy
 openpyxl
 feedparser
+pdfplumber
+docx2txt
+python-multipart
+supabase
+google-generativeai
