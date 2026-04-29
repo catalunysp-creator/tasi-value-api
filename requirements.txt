@@ -5,7 +5,7 @@ pandas
 numpy
 openpyxl
 feedparser
-pdfplumber
+pypdf
 docx2txt
 python-multipart
 supabase
