@@ -18,9 +18,9 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
-)  # ← هذا القوس كان ناقصاً
+)
 
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
 
 RSS_SOURCES = {
@@ -69,17 +69,21 @@ async def analyze_and_store(
     if not text.strip():
         return {"error": "لم يتم استخراج نص من الملف"}
 
-    model = genai.GenerativeModel("gemini-1.5-flash")
-    response = model.generate_content(f"""
-    أنت محلل مالي متخصص في السوق السعودي.
-    حلل هذا المستند واستخرج:
-    1. 📊 أبرز الأرقام المالية
-    2. 📈 المقارنة بالفترة السابقة
-    3. 💡 ملخص تنفيذي في 3 جمل
-    4. ⚡ التأثير المتوقع على السهم
-    5. ⚠️ مخاطر تستحق الانتباه
-    النص: {text[:4000]}
-    """)
+    # ✅ API الجديد
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=f"""
+        أنت محلل مالي متخصص في السوق السعودي.
+        حلل هذا المستند واستخرج:
+        1. 📊 أبرز الأرقام المالية
+        2. 📈 المقارنة بالفترة السابقة
+        3. 💡 ملخص تنفيذي في 3 جمل
+        4. ⚡ التأثير المتوقع على السهم
+        5. ⚠️ مخاطر تستحق الانتباه
+        النص: {text[:4000]}
+        """,
+        config=types.GenerateContentConfig(temperature=0.3)
+    )
 
     sb.table("documents").insert({
         "filename": file.filename,
