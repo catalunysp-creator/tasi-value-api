@@ -48,8 +48,9 @@ async def extract_text(file: UploadFile) -> str:
     content = await file.read()
     name = file.filename.lower()
     if name.endswith(".pdf"):
-        with pdfplumber.open(io.BytesIO(content)) as pdf:
-            return "\n".join(p.extract_text() or "" for p in pdf.pages)
+        from pypdf import PdfReader  # تحميل عند الحاجة فقط
+        reader = PdfReader(io.BytesIO(content))
+        return "\n".join(p.extract_text() or "" for p in reader.pages)
     elif name.endswith((".xlsx", ".xls")):
         df = pd.read_excel(io.BytesIO(content))
         return df.to_string()
