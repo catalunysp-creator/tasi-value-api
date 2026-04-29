@@ -7,7 +7,7 @@ from datetime import datetime
 import feedparser
 import google.generativeai as genai
 from supabase import create_client
-import pdfplumber, docx2txt, io, os
+import docx2txt, io, os
 from typing import Optional
 
 app = FastAPI()
