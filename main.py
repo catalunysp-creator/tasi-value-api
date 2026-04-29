@@ -19,7 +19,7 @@ app.add_middleware(
 # ✅ 2. القاموس مغلق بشكل صحيح
 RSS_SOURCES = {
     "Argaam": "https://www.argaam.com/ar/rss/ho-main-news?sectionid=1523",
-    "CNN": "https://www.cnnbusinessarabic.com/rssFeed/279"
+    "CNN": "https://arabic.cnn.com/api/v1/rss/rss.xml"
 }
 
 # ✅ 3. Routes بعد app
