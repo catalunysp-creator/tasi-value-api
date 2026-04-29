@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Query, UploadFile, File, Form
+from google.genai import errors as genai_errors
 from fastapi.middleware.cors import CORSMiddleware
 import yfinance as yf
 import pandas as pd
@@ -59,6 +60,7 @@ async def extract_text(file: UploadFile) -> str:
         return docx2txt.process(io.BytesIO(content))
     return ""
 
+
 @app.post("/upload/analyze")
 async def analyze_and_store(
     file: UploadFile = File(...),
@@ -69,31 +71,42 @@ async def analyze_and_store(
     if not text.strip():
         return {"error": "لم يتم استخراج نص من الملف"}
 
-    # ✅ API الجديد
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=f"""
-        أنت محلل مالي متخصص في السوق السعودي.
-        حلل هذا المستند واستخرج:
-        1. 📊 أبرز الأرقام المالية
-        2. 📈 المقارنة بالفترة السابقة
-        3. 💡 ملخص تنفيذي في 3 جمل
-        4. ⚡ التأثير المتوقع على السهم
-        5. ⚠️ مخاطر تستحق الانتباه
-        النص: {text[:4000]}
-        """,
-        config=types.GenerateContentConfig(temperature=0.3)
-    )
+    # قصّر النص لتجنب تجاوز context limit
+    truncated = text[:3000]
+
+    try:
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=f"""أنت محلل مالي متخصص في السوق السعودي.
+حلل هذا المستند واستخرج:
+1. 📊 أبرز الأرقام المالية
+2. 📈 المقارنة بالفترة السابقة
+3. 💡 ملخص تنفيذي في 3 جمل
+4. ⚡ التأثير المتوقع على السهم
+5. ⚠️ مخاطر تستحق الانتباه
+
+النص: {truncated}""",
+            config=types.GenerateContentConfig(
+                temperature=0.3,
+                max_output_tokens=1024,
+            )
+        )
+        analysis_text = response.text
+
+    except genai_errors.ServerError as e:
+        raise HTTPException(status_code=502, detail=f"Gemini API error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"خطأ في التحليل: {str(e)}")
 
     sb.table("documents").insert({
         "filename": file.filename,
         "ticker":   ticker,
         "category": category,
         "raw_text": text[:10000],
-        "analysis": response.text,
+        "analysis": analysis_text,
     }).execute()
 
-    return {"filename": file.filename, "analysis": response.text}
+    return {"filename": file.filename, "analysis": analysis_text}
 
 @app.get("/documents")
 def get_documents(ticker: str = None):
