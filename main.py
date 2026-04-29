@@ -5,7 +5,8 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import feedparser
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from supabase import create_client
 import docx2txt, io, os
 from typing import Optional
