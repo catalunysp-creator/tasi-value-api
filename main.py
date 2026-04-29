@@ -4,31 +4,39 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from datetime import datetime
-import feedparser # تأكد من إضافة feedparser لملف requirements.txt
+import feedparser
 
+# ✅ 1. إنشاء app أولاً
+app = FastAPI()
+
+# ✅ 2. CORS مباشرة بعده
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ✅ 3. القاموس بقوس مغلق
 RSS_SOURCES = {
     "Argaam": "https://www.argaam.com/ar/rss/ho-main-news?sectionid=1523",
     "CNN": "https://www.cnnbusinessarabic.com/rssFeed/279"
-}
+}  # ← القوس المغلق
 
 @app.get("/news")
 def get_news(source: str = "Argaam"):
     url = RSS_SOURCES.get(source)
     if not url:
         return {"error": "Source not found"}
-    
-    # جلب وقراءة الـ RSS
     feed = feedparser.parse(url)
-    
     news_list = []
-    for entry in feed.entries[:10]: # جلب أحدث 10 أخبار
+    for entry in feed.entries[:10]:
         news_list.append({
             "title": entry.title,
             "link": entry.link,
-            "published": entry.published if 'published' in entry else "N/A",
-            "summary": entry.summary[:150] + "..." if 'summary' in entry else ""
+            "published": entry.get("published", "N/A"),
+            "summary": entry.summary[:150] + "..." if "summary" in entry else ""
         })
-        
     return {"source": source, "articles": news_list}
 
 app = FastAPI()
