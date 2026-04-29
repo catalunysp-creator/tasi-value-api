@@ -10,7 +10,6 @@ from supabase import create_client
 import pdfplumber, docx2txt, io, os
 from typing import Optional
 
-# ✅ 1. إنشاء app أولاً
 app = FastAPI()
 
 app.add_middleware(
@@ -18,21 +17,16 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
-)
+)  # ← هذا القوس كان ناقصاً
 
-# ✅ 2. إعداد Gemini و Supabase
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
 
-# ✅ 3. RSS Sources
 RSS_SOURCES = {
     "Argaam": "https://www.argaam.com/ar/rss/ho-main-news?sectionid=1523",
-    "CNN": "https://arabic.cnn.com/api/v1/rss/rss.xml"
+    "CNN":    "https://arabic.cnn.com/api/v1/rss/rss.xml"
 }
 
-# ─────────────────────────────────────────
-# RSS News
-# ─────────────────────────────────────────
 @app.get("/news")
 def get_news(source: str = "Argaam"):
     url = RSS_SOURCES.get(source)
@@ -42,17 +36,14 @@ def get_news(source: str = "Argaam"):
     news_list = []
     for entry in feed.entries[:10]:
         news_list.append({
-            "title": entry.title,
-            "link": entry.link,
+            "title":     entry.title,
+            "link":      entry.link,
             "published": entry.get("published", "N/A"),
-            "summary": entry.summary[:150] + "..." if "summary" in entry else ""
+            "summary":   entry.summary[:150] + "..." if "summary" in entry else ""
         })
     return {"source": source, "articles": news_list}
 
 
-# ─────────────────────────────────────────
-# Document Analysis
-# ─────────────────────────────────────────
 async def extract_text(file: UploadFile) -> str:
     content = await file.read()
     name = file.filename.lower()
@@ -108,9 +99,6 @@ def get_documents(ticker: str = None):
     return {"data": query.execute().data}
 
 
-# ─────────────────────────────────────────
-# Helper Functions
-# ─────────────────────────────────────────
 def safe_float(value, default=0.0):
     try:
         if value is None or (isinstance(value, float) and np.isnan(value)):
@@ -121,7 +109,7 @@ def safe_float(value, default=0.0):
 
 def calculate_fair_value(info):
     try:
-        eps = safe_float(info.get('trailingEps', 0))
+        eps    = safe_float(info.get('trailingEps', 0))
         growth = safe_float(info.get('earningsQuarterlyGrowth', 0.05))
         fair_val = eps * (8.5 + 2 * (growth * 100))
         return round(fair_val, 2) if fair_val > 0 else 0
@@ -168,9 +156,6 @@ def calculate_metrics(income, balance, cashflow, info):
     return res
 
 
-# ─────────────────────────────────────────
-# Stock Analysis
-# ─────────────────────────────────────────
 @app.get("/analyze")
 def get_stock_analysis(ticker: str = Query(..., description="رمز الشركة")):
     try:
@@ -197,7 +182,7 @@ def get_stock_analysis(ticker: str = Query(..., description="رمز الشركة
         if not a_inc.empty:
             for col in a_inc.columns[:min(4, len(a_inc.columns))]:
                 chart_data.append({
-                    "year": col.year,
+                    "year":       col.year,
                     "revenue":    safe_float(a_inc.loc['Total Revenue', col]) if 'Total Revenue' in a_inc.index else 0,
                     "net_income": safe_float(a_inc.loc['Net Income', col])    if 'Net Income'    in a_inc.index else 0
                 })
